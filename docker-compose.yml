@@ -7,5 +7,5 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=AIzaSyC-NdlLhEBK0M5gbG5AMMZ0Ml8MxZzMsZc
     restart: always
