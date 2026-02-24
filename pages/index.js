@@ -50,7 +50,7 @@ export default function Home() {
 
   const placeholder = useMemo(() => EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)], []);
 
-  const runExplain = async (overrideTopic) => {
+  const runExplain = async (overrideTopic, overrideLevel = level) => {
     const currentTopic = (overrideTopic ?? topic).trim();
     setError('');
     setResult(null);
@@ -61,9 +61,25 @@ export default function Home() {
     }
 
     setLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    setResult(buildExplanation(currentTopic, level, style));
-    setLoading(false);
+    try {
+      const response = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: currentTopic, level: overrideLevel, style }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to explain this topic.');
+      }
+
+      setResult(payload);
+    } catch (err) {
+      setError(err.message || 'Failed to explain this topic.');
+      setResult(buildExplanation(currentTopic, overrideLevel, style));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -154,7 +170,7 @@ export default function Home() {
           </div>
 
           <div className="cta-row">
-            <button id="explainBtn" className="primary-btn" type="button" onClick={() => runExplain()}>
+            <button id="explainBtn" className="primary-btn" type="button" onClick={() => runExplain()} disabled={loading}>
               Explain Simply
             </button>
           </div>
@@ -221,10 +237,10 @@ export default function Home() {
               <button className="small-pill" type="button">
                 📋 Copy
               </button>
-              <button className="small-pill" type="button" onClick={() => setLevel('Kid')}>
+              <button className="small-pill" type="button" onClick={() => { setLevel('Kid'); runExplain(topic, 'Kid'); }}>
                 🔽 Simplify More
               </button>
-              <button className="small-pill" type="button" onClick={() => setLevel('Expert')}>
+              <button className="small-pill" type="button" onClick={() => { setLevel('Expert'); runExplain(topic, 'Expert'); }}>
                 🔍 Explain Deeper
               </button>
             </div>
