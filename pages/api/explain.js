@@ -1,4 +1,11 @@
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const DEFAULT_MODELS = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+];
 
 function buildPrompt(topic, level, style) {
   return [
@@ -26,6 +33,29 @@ function safeParseJson(text) {
   }
 }
 
+function resolveModelCandidates() {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  if (configured) {
+    return [configured, ...DEFAULT_MODELS.filter((model) => model !== configured)];
+  }
+  return DEFAULT_MODELS;
+}
+
+async function requestGemini({ apiKey, model, topic, level, style }) {
+  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: buildPrompt(topic, level, style) }] }],
+      generationConfig: { temperature: 0.5, responseMimeType: 'application/json' },
+    }),
+  });
+
+  const raw = await response.text();
+  const data = safeParseJson(raw);
+  return { ok: response.ok, status: response.status, raw, data };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -41,37 +71,66 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Please enter a topic with at least 3 characters.' });
   }
 
+  const modelCandidates = resolveModelCandidates();
+  let lastError = null;
+
   try {
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildPrompt(topic.trim(), level, style) }] }],
-        generationConfig: { temperature: 0.5, responseMimeType: 'application/json' },
-      }),
+    for (const model of modelCandidates) {
+      const result = await requestGemini({
+        apiKey,
+        model,
+        topic: topic.trim(),
+        level,
+        style,
+      });
+
+      if (result.ok) {
+        const text = result.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        const parsed = safeParseJson(text);
+
+        if (!parsed) {
+          lastError = {
+            model,
+            status: 502,
+            error: 'Gemini returned an unparsable response.',
+          };
+          continue;
+        }
+
+        const output = {
+          simpleExplanation: parsed.simpleExplanation || '',
+          analogy: parsed.analogy || '',
+          realWorldExample: parsed.realWorldExample || '',
+          curiousQuestions: Array.isArray(parsed.curiousQuestions) ? parsed.curiousQuestions.slice(0, 5) : [],
+        };
+
+        return res.status(200).json(output);
+      }
+
+      // Retry with next model when current model isn't available.
+      if (result.status === 404) {
+        lastError = {
+          model,
+          status: result.status,
+          error: 'Model not found for this API key/version. Trying fallback model.',
+          details: result.raw,
+        };
+        continue;
+      }
+
+      // For non-404 errors, stop early and surface error details.
+      return res.status(502).json({
+        error: 'Gemini API request failed.',
+        model,
+        details: result.raw,
+      });
+    }
+
+    return res.status(502).json({
+      error: 'Gemini API request failed for all configured models.',
+      attemptedModels: modelCandidates,
+      lastError,
     });
-
-    if (!response.ok) {
-      const details = await response.text();
-      return res.status(502).json({ error: 'Gemini API request failed.', details });
-    }
-
-    const payload = await response.json();
-    const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    const parsed = safeParseJson(text);
-
-    if (!parsed) {
-      return res.status(502).json({ error: 'Gemini returned an unparsable response.' });
-    }
-
-    const output = {
-      simpleExplanation: parsed.simpleExplanation || '',
-      analogy: parsed.analogy || '',
-      realWorldExample: parsed.realWorldExample || '',
-      curiousQuestions: Array.isArray(parsed.curiousQuestions) ? parsed.curiousQuestions.slice(0, 5) : [],
-    };
-
-    return res.status(200).json(output);
   } catch (error) {
     return res.status(500).json({ error: 'Unexpected server error.', details: error.message });
   }
