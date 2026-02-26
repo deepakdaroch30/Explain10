@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Explain10 - Understand anything, instantly</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="hero-backdrop" aria-hidden="true"></div>
+
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-icon">✨</div>
+          <span class="brand-text">Explain10</span>
+        </div>
+        <nav class="header-nav">
+          <button class="ghost-btn" type="button">Examples</button>
+          <button class="ghost-btn" type="button" disabled>History</button>
+          <button class="ghost-btn" type="button">Login</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="hero">
+        <h1>
+          Understand <span class="gradient-word">anything</span>, instantly
+        </h1>
+        <p>Turn complex ideas into simple, clear explanations.</p>
+      </section>
+
+      <section class="input-card card">
+        <div class="example-chips" id="exampleChips"></div>
+        <textarea
+          id="topicInput"
+          rows="6"
+          placeholder="Explain blockchain"
+          aria-label="Concept to explain"
+        ></textarea>
+
+        <div class="controls-grid">
+          <div class="field-group">
+            <span>Explanation Level</span>
+            <div class="segmented-control" id="levelControl" role="radiogroup" aria-label="Explanation level">
+              <button type="button" class="segment-pill is-active" data-level="Kid">Kid</button>
+              <button type="button" class="segment-pill" data-level="Teen">Teen</button>
+              <button type="button" class="segment-pill" data-level="Expert">Expert</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <span>Output Style</span>
+            <div class="toggle-group" id="styleToggle" role="radiogroup" aria-label="Output style">
+              <button type="button" class="toggle-pill is-active" data-style="Simple">Simple</button>
+              <button type="button" class="toggle-pill" data-style="Analogy">Analogy</button>
+              <button type="button" class="toggle-pill" data-style="Step-by-step">Step-by-step</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cta-row">
+          <button id="explainBtn" class="primary-btn" type="button">Explain Simply</button>
+        </div>
+      </section>
+
+      <div class="flow-connector" aria-hidden="true">↓</div>
+      <section id="errorState" class="error-alert hidden" role="alert"></section>
+
+      <section id="loadingState" class="loading-card card hidden" aria-live="polite">
+        <p>Generating...</p>
+        <div class="skeleton-line w-90"></div>
+        <div class="skeleton-line w-75"></div>
+        <div class="skeleton-line w-100"></div>
+        <div class="skeleton-line w-65"></div>
+      </section>
+
+      <section id="outputSection" class="output-card card hidden" aria-live="polite">
+        <div class="output-block output-explanation">
+          <h2><span>📘</span> <span>Simple Explanation</span></h2>
+          <p id="simpleText"></p>
+        </div>
+
+        <div class="output-block output-analogy">
+          <h2><span>💡</span> <span>Analogy</span></h2>
+          <p id="analogyText"></p>
+        </div>
+
+        <div class="output-block output-example">
+          <h2><span>🌍</span> <span>Real-world Example</span></h2>
+          <p id="exampleText"></p>
+        </div>
+
+        <div class="output-block output-questions">
+          <h2><span>❓</span> <span>Curious Questions</span></h2>
+          <ul id="questionsList" class="question-list"></ul>
+        </div>
+
+        <div class="action-bar">
+          <button class="small-pill" id="copyBtn" type="button">📋 Copy</button>
+          <button class="small-pill" id="simplifyBtn" type="button">🔽 Simplify More</button>
+          <button class="small-pill" id="deeperBtn" type="button">🔍 Explain Deeper</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
