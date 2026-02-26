@@ -71,13 +71,13 @@ export default function Home() {
       const payload = await response.json();
       if (!response.ok) {
         if (payload?.code === 'quota_exceeded') {
-          setError('Gemini quota exceeded. Showing a local fallback explanation for now.');
+          setError('Groq quota exceeded. Showing a local fallback explanation for now.');
           setResult(buildExplanation(currentTopic, overrideLevel, style));
           return;
         }
 
         if (payload?.code === 'forbidden') {
-          throw new Error('Gemini key is not authorized. Check GEMINI_API_KEY and project access.');
+          throw new Error('Groq key is not authorized. Check GROQ_API_KEY and project access.');
         }
 
         throw new Error(payload?.error || 'Failed to explain this topic.');

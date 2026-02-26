@@ -1,11 +1,5 @@
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-
-const DEFAULT_MODELS = [
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-];
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const DEFAULT_MODEL = 'llama-3.1-8b-instant';
 
 function buildPrompt(topic, level, style) {
   return [
@@ -23,7 +17,7 @@ function safeParseJson(text) {
   try {
     return JSON.parse(text);
   } catch {
-    const match = text.match(/\{[\s\S]*\}/);
+    const match = text?.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
       return JSON.parse(match[0]);
@@ -33,37 +27,14 @@ function safeParseJson(text) {
   }
 }
 
-function resolveModelCandidates() {
-  const configured = process.env.GEMINI_MODEL?.trim();
-  if (configured) {
-    return [configured, ...DEFAULT_MODELS.filter((model) => model !== configured)];
-  }
-  return DEFAULT_MODELS;
-}
-
-async function requestGemini({ apiKey, model, topic, level, style }) {
-  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: buildPrompt(topic, level, style) }] }],
-      generationConfig: { temperature: 0.5, responseMimeType: 'application/json' },
-    }),
-  });
-
-  const raw = await response.text();
-  const data = safeParseJson(raw);
-  return { ok: response.ok, status: response.status, raw, data };
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Missing GEMINI_API_KEY in server environment.' });
+    return res.status(500).json({ error: 'Missing GROQ_API_KEY in server environment.' });
   }
 
   const { topic, level = 'Kid', style = 'Simple' } = req.body ?? {};
@@ -71,86 +42,69 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Please enter a topic with at least 3 characters.' });
   }
 
-  const modelCandidates = resolveModelCandidates();
-  let lastError = null;
+  const model = process.env.GROQ_MODEL?.trim() || DEFAULT_MODEL;
 
   try {
-    for (const model of modelCandidates) {
-      const result = await requestGemini({
-        apiKey,
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
         model,
-        topic: topic.trim(),
-        level,
-        style,
-      });
+        messages: [{ role: 'user', content: buildPrompt(topic.trim(), level, style) }],
+        temperature: 0.5,
+        response_format: { type: 'json_object' },
+      }),
+    });
 
-      if (result.ok) {
-        const text = result.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-        const parsed = safeParseJson(text);
+    const raw = await response.text();
 
-        if (!parsed) {
-          lastError = {
-            model,
-            status: 502,
-            error: 'Gemini returned an unparsable response.',
-          };
-          continue;
-        }
-
-        const output = {
-          simpleExplanation: parsed.simpleExplanation || '',
-          analogy: parsed.analogy || '',
-          realWorldExample: parsed.realWorldExample || '',
-          curiousQuestions: Array.isArray(parsed.curiousQuestions) ? parsed.curiousQuestions.slice(0, 5) : [],
-        };
-
-        return res.status(200).json(output);
-      }
-
-      // Retry with next model when current model isn't available.
-      if (result.status === 404) {
-        lastError = {
-          model,
-          status: result.status,
-          error: 'Model not found for this API key/version. Trying fallback model.',
-          details: result.raw,
-        };
-        continue;
-      }
-
-      // Quota/billing/auth issues should surface a clear machine-readable code.
-      if (result.status === 429) {
+    if (!response.ok) {
+      if (response.status === 429) {
         return res.status(429).json({
-          error: 'Gemini quota exceeded. Please check your Gemini plan/billing.',
+          error: 'Groq quota/rate limit exceeded. Showing fallback content in UI.',
           code: 'quota_exceeded',
           model,
-          details: result.raw,
+          details: raw,
         });
       }
 
-      if (result.status === 403) {
-        return res.status(403).json({
-          error: 'Gemini API key is not authorized for this request.',
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({
+          error: 'Groq API key is not authorized for this request.',
           code: 'forbidden',
           model,
-          details: result.raw,
+          details: raw,
         });
       }
 
-      // For other non-404 errors, stop early and surface error details.
       return res.status(502).json({
-        error: 'Gemini API request failed.',
+        error: 'Groq API request failed.',
         code: 'upstream_error',
         model,
-        details: result.raw,
+        details: raw,
       });
     }
 
-    return res.status(502).json({
-      error: 'Gemini API request failed for all configured models.',
-      code: 'all_models_failed',
-      attemptedModels: modelCandidates,
-      lastError,
+    const payload = safeParseJson(raw);
+    const content = payload?.choices?.[0]?.message?.content ?? '';
+    const parsed = safeParseJson(content);
+
+    if (!parsed) {
+      return res.status(502).json({
+        error: 'Groq returned an unparsable response.',
+        code: 'unparsable_response',
+        model,
+      });
+    }
+
+    return res.status(200).json({
+      simpleExplanation: parsed.simpleExplanation || '',
+      analogy: parsed.analogy || '',
+      realWorldExample: parsed.realWorldExample || '',
+      curiousQuestions: Array.isArray(parsed.curiousQuestions) ? parsed.curiousQuestions.slice(0, 5) : [],
     });
   } catch (error) {
     return res.status(500).json({ error: 'Unexpected server error.', details: error.message });
