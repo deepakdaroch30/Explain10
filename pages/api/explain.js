@@ -118,9 +118,29 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // For non-404 errors, stop early and surface error details.
+      // Quota/billing/auth issues should surface a clear machine-readable code.
+      if (result.status === 429) {
+        return res.status(429).json({
+          error: 'Gemini quota exceeded. Please check your Gemini plan/billing.',
+          code: 'quota_exceeded',
+          model,
+          details: result.raw,
+        });
+      }
+
+      if (result.status === 403) {
+        return res.status(403).json({
+          error: 'Gemini API key is not authorized for this request.',
+          code: 'forbidden',
+          model,
+          details: result.raw,
+        });
+      }
+
+      // For other non-404 errors, stop early and surface error details.
       return res.status(502).json({
         error: 'Gemini API request failed.',
+        code: 'upstream_error',
         model,
         details: result.raw,
       });
@@ -128,6 +148,7 @@ export default async function handler(req, res) {
 
     return res.status(502).json({
       error: 'Gemini API request failed for all configured models.',
+      code: 'all_models_failed',
       attemptedModels: modelCandidates,
       lastError,
     });
