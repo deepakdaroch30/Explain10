@@ -1,22 +1,8 @@
 import Head from 'next/head';
+import Script from 'next/script';
 import { useMemo, useState } from 'react';
 
 const EXAMPLES = ['Explain blockchain', 'Explain APIs', 'Explain inflation'];
-
-const STYLE_TEMPLATES = {
-  Simple: {
-    analogyPrefix: 'Think of it like',
-    questionPrompt: 'Want to learn even more?',
-  },
-  Analogy: {
-    analogyPrefix: 'Imagine',
-    questionPrompt: 'If this analogy makes sense, ask:',
-  },
-  'Step-by-step': {
-    analogyPrefix: 'A step-by-step way to picture it is',
-    questionPrompt: 'To go step-by-step, you could ask:',
-  },
-};
 
 function buildExplanation(topic, level, style) {
   const tone =
@@ -26,16 +12,26 @@ function buildExplanation(topic, level, style) {
       ? 'clear but with more technical precision'
       : 'simple, friendly, and practical';
 
-  const template = STYLE_TEMPLATES[style] ?? STYLE_TEMPLATES.Simple;
+  const styleAddOn =
+    style === 'Analogy'
+      ? 'Focus on relatable comparisons.'
+      : style === 'Step-by-step'
+      ? 'Break the flow into clear steps.'
+      : 'Keep it straightforward and concise.';
 
   return {
-    simpleExplanation: `${topic} works in a way that's ${tone}. The big idea is that smaller parts work together to create a useful result. Once you understand each part's job, the whole thing becomes much easier to follow.`,
-    analogy: `${template.analogyPrefix} a team delivering pizzas: one person takes orders, one cooks, one drives. ${topic} is similar because different parts each have a role, and the final outcome only works when they coordinate.`,
-    realWorldExample: `In real life, ${topic} shows up when apps or systems need to handle many steps quickly and clearly—like booking a ride, tracking a package, or streaming video smoothly.`,
+    simpleExplanation: `${topic} works in a way that's ${tone}. ${styleAddOn} The core idea is that smaller parts coordinate to produce a useful outcome.`,
+    analogy: `${topic} is like a pizza team: one person takes orders, one cooks, and one delivers. Each role matters for the final result.`,
+    stepByStep: [
+      `Define the goal of ${topic}.`,
+      `Break ${topic} into small moving parts.`,
+      `Follow how each part contributes to the final result.`,
+    ],
+    realWorldExample: `You can see ${topic} in everyday systems like booking rides, tracking parcels, or streaming a video smoothly.`,
     curiousQuestions: [
       `What is the most important part of ${topic}?`,
-      `What breaks if one part of ${topic} fails?`,
-      `${template.questionPrompt}`,
+      `What breaks if one part fails?`,
+      `How would ${topic} change at 10x scale?`,
     ],
   };
 }
@@ -47,13 +43,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [followupAnswer, setFollowupAnswer] = useState(null);
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [expanded, setExpanded] = useState({ example: false, analogy: false, questions: false });
 
   const placeholder = useMemo(() => EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)], []);
 
-  const runExplain = async (overrideTopic, overrideLevel = level) => {
+  const runExplain = async (overrideTopic, overrideLevel = level, overrideStyle = style) => {
     const currentTopic = (overrideTopic ?? topic).trim();
     setError('');
     setResult(null);
+    setFollowupAnswer(null);
 
     if (currentTopic.length < 3) {
       setError('Please enter a topic with at least 3 characters.');
@@ -65,198 +65,250 @@ export default function Home() {
       const response = await fetch('/api/explain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: currentTopic, level: overrideLevel, style }),
+        body: JSON.stringify({ topic: currentTopic, level: overrideLevel, style: overrideStyle }),
       });
 
       const payload = await response.json();
       if (!response.ok) {
-        if (payload?.code === 'quota_exceeded') {
-          setError('Groq quota exceeded. Showing a local fallback explanation for now.');
-          setResult(buildExplanation(currentTopic, overrideLevel, style));
-          return;
-        }
-
-        if (payload?.code === 'forbidden') {
-          throw new Error('Groq key is not authorized. Check GROQ_API_KEY and project access.');
-        }
-
         throw new Error(payload?.error || 'Failed to explain this topic.');
       }
 
       setResult(payload);
+      setExpanded({ example: false, analogy: false, questions: false });
     } catch (err) {
       setError(err.message || 'Failed to explain this topic.');
-      setResult(buildExplanation(currentTopic, overrideLevel, style));
+      setResult(buildExplanation(currentTopic, overrideLevel, overrideStyle));
     } finally {
       setLoading(false);
     }
   };
 
+  const answerCuriousQuestion = async (question) => {
+    setFollowupLoading(true);
+    try {
+      const response = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: question, level, style: 'Simple' }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error();
+      setFollowupAnswer({ question, answer: payload.simpleExplanation || '' });
+    } catch {
+      setFollowupAnswer({ question, answer: buildExplanation(question, level, 'Simple').simpleExplanation });
+    } finally {
+      setFollowupLoading(false);
+    }
+  };
+
+  const toggle = (key) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+
   return (
     <>
       <Head>
         <title>Explain10 - Understand anything, instantly</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
+      <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
 
-      <div className="hero-backdrop" aria-hidden="true" />
-
-      <header className="app-header">
-        <div className="header-content">
-          <div className="brand">
-            <div className="brand-icon">✨</div>
-            <span className="brand-text">Explain10</span>
+      <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 text-slate-900">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/85 backdrop-blur">
+          <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-indigo-600 text-white">✨</div>
+              <span className="text-4 font-semibold">Explain10</span>
+            </div>
+            <nav className="flex items-center gap-6 text-sm text-gray-500">
+              <a className="transition hover:text-gray-900" href="#">Examples</a>
+              <a className="transition hover:text-gray-900" href="#">History</a>
+              <a className="transition hover:text-gray-900" href="#">Login</a>
+            </nav>
           </div>
-          <nav className="header-nav">
-            <button className="ghost-btn" type="button">Examples</button>
-            <button className="ghost-btn" type="button" disabled>
-              History
-            </button>
-            <button className="ghost-btn" type="button">Login</button>
-          </nav>
-        </div>
-      </header>
+        </header>
 
-      <main className="app-main">
-        <section className="hero">
-          <h1>
-            Understand <span className="gradient-word">anything</span>, instantly
-          </h1>
-          <p>Turn complex ideas into simple, clear explanations.</p>
-        </section>
+        <main className="mx-auto grid max-w-4xl gap-5 px-4 pb-28 pt-6 md:pb-10 md:pt-8">
+          <section className="text-center">
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-900 md:text-6xl">
+              Understand <span className="text-indigo-600">anything</span>, instantly
+            </h1>
+            <p className="mt-3 text-lg text-gray-500">Turn complex ideas into simple, clear explanations.</p>
+          </section>
 
-        <section className="input-card card">
-          <div className="example-chips">
-            {EXAMPLES.map((example) => (
-              <button key={example} className="chip" type="button" onClick={() => setTopic(example)}>
-                {example}
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example}
+                  className="rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-200"
+                  type="button"
+                  onClick={() => setTopic(example)}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              id="topicInput"
+              rows={4}
+              placeholder={placeholder}
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              className="mb-4 w-full rounded-xl border border-gray-300 p-4 text-slate-900 outline-none ring-indigo-500/40 transition focus:border-indigo-500 focus:ring-2"
+            />
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-sm text-gray-500">Explanation Level</p>
+                <div className="flex flex-wrap gap-2">
+                  {['Kid', 'Teen', 'Expert'].map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setLevel(item)}
+                      className={`rounded-full px-4 py-1.5 text-sm transition ${
+                        level === item ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                      type="button"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm text-gray-500">Output Style</p>
+                <div className="flex flex-wrap gap-2">
+                  {['Simple', 'Analogy', 'Step-by-step'].map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setStyle(item)}
+                      className={`rounded-full px-4 py-1.5 text-sm transition ${
+                        style === item ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                      type="button"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-center">
+              <button
+                id="explainBtn"
+                type="button"
+                disabled={loading}
+                onClick={() => runExplain()}
+                className="rounded-xl bg-indigo-600 px-6 py-3 font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-70"
+              >
+                {loading ? 'Explaining…' : 'Explain Simply'}
               </button>
-            ))}
-          </div>
-
-          <textarea
-            id="topicInput"
-            rows={6}
-            placeholder={placeholder}
-            aria-label="Concept to explain"
-            className={topic.trim() ? 'has-content' : ''}
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-
-          <div className="controls-grid">
-            <div className="field-group">
-              <span>Explanation Level</span>
-              <div className="segmented-control" role="radiogroup" aria-label="Explanation level">
-                {['Kid', 'Teen', 'Expert'].map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    data-level={item}
-                    className={`segment-pill ${level === item ? 'is-active' : ''}`}
-                    onClick={() => setLevel(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            <div className="field-group">
-              <span>Output Style</span>
-              <div className="toggle-group" role="radiogroup" aria-label="Output style">
-                {['Simple', 'Analogy', 'Step-by-step'].map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    data-style={item}
-                    className={`toggle-pill ${style === item ? 'is-active' : ''}`}
-                    onClick={() => setStyle(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="cta-row">
-            <button id="explainBtn" className="primary-btn" type="button" onClick={() => runExplain()} disabled={loading}>
-              Explain Simply
-            </button>
-          </div>
-        </section>
-
-        <div className="flow-connector" aria-hidden="true">↓</div>
-
-        {error ? (
-          <section className="error-alert" role="alert">
-            {error}
+            {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
           </section>
-        ) : null}
 
-        {loading ? (
-          <section className="loading-card card" aria-live="polite">
-            <p>Generating...</p>
-            <div className="skeleton-line w-90" />
-            <div className="skeleton-line w-75" />
-            <div className="skeleton-line w-100" />
-            <div className="skeleton-line w-65" />
-          </section>
-        ) : null}
+          {result ? (
+            <section className="grid gap-3 md:grid-cols-2">
+              <article className="rounded-xl bg-blue-50 p-4 md:col-span-2">
+                <h2 className="mb-2 text-base font-semibold text-slate-900">📘 Simple Explanation</h2>
+                <p className="text-sm text-slate-700">{result.simpleExplanation}</p>
+              </article>
+
+              <article className="rounded-xl bg-green-50 p-4">
+                <button className="mb-2 flex w-full items-center justify-between md:cursor-default" type="button" onClick={() => toggle('example')}>
+                  <h3 className="text-base font-semibold">🌍 Real-world Example</h3>
+                  <span className="text-gray-500 md:hidden">{expanded.example ? '−' : '+'}</span>
+                </button>
+                <p className={`${expanded.example ? 'block' : 'hidden'} text-sm text-slate-700 md:block`}>{result.realWorldExample}</p>
+              </article>
+
+              <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <button className="mb-2 flex w-full items-center justify-between md:cursor-default" type="button" onClick={() => toggle('analogy')}>
+                  <h3 className="text-base font-semibold">💡 Analogy</h3>
+                  <span className="text-gray-500 md:hidden">{expanded.analogy ? '−' : '+'}</span>
+                </button>
+                <div className={`${expanded.analogy ? 'block' : 'hidden'} md:block`}>
+                  {style === 'Step-by-step' ? (
+                    <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
+                      {(result.stepByStep || []).map((step, idx) => (
+                        <li key={`${step}-${idx}`}>{step}</li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="text-sm text-slate-700">{style === 'Analogy' ? result.analogy : result.analogy}</p>
+                  )}
+                </div>
+              </article>
+
+              <article className="rounded-xl bg-yellow-50 p-4 md:col-span-2">
+                <button className="mb-2 flex w-full items-center justify-between md:cursor-default" type="button" onClick={() => toggle('questions')}>
+                  <h3 className="text-base font-semibold">❓ Curious Questions</h3>
+                  <span className="text-gray-500 md:hidden">{expanded.questions ? '−' : '+'}</span>
+                </button>
+                <ul className={`${expanded.questions ? 'grid' : 'hidden'} gap-2 md:grid`}>
+                  {result.curiousQuestions.map((question) => (
+                    <li key={question}>
+                      <button
+                        className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:border-indigo-300"
+                        type="button"
+                        onClick={() => answerCuriousQuestion(question)}
+                      >
+                        <span>{question}</span>
+                        <span>›</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+
+              {followupLoading ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm md:col-span-2">Answering your question…</div> : null}
+              {followupAnswer ? (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 md:col-span-2">
+                  <h4 className="mb-1 text-sm font-semibold">Answer to: {followupAnswer.question}</h4>
+                  <p className="text-sm text-slate-700">{followupAnswer.answer}</p>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </main>
 
         {result ? (
-          <section id="outputSection" className="output-card card" aria-live="polite">
-            <div className="output-block output-explanation">
-              <h2>
-                <span>📘</span> <span>Simple Explanation</span>
-              </h2>
-              <p>{result.simpleExplanation}</p>
-            </div>
-
-            <div className="output-block output-analogy">
-              <h2>
-                <span>💡</span> <span>Analogy</span>
-              </h2>
-              <p>{result.analogy}</p>
-            </div>
-
-            <div className="output-block output-example">
-              <h2>
-                <span>🌍</span> <span>Real-world Example</span>
-              </h2>
-              <p>{result.realWorldExample}</p>
-            </div>
-
-            <div className="output-block output-questions">
-              <h2>
-                <span>❓</span> <span>Curious Questions</span>
-              </h2>
-              <ul className="question-list">
-                {result.curiousQuestions.map((question) => (
-                  <li key={question}>
-                    <button className="question-chip" type="button" onClick={() => runExplain(question)}>
-                      <span>{question}</span>
-                      <span aria-hidden="true">›</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="action-bar">
-              <button className="small-pill" type="button">
-                📋 Copy
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-3 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
+            <div className="mx-auto flex max-w-4xl flex-wrap justify-end gap-2">
+              <button
+                className="rounded-full bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200"
+                type="button"
+                onClick={() => navigator.clipboard.writeText(result.simpleExplanation || '')}
+              >
+                Copy
               </button>
-              <button className="small-pill" type="button" onClick={() => { setLevel('Kid'); runExplain(topic, 'Kid'); }}>
-                🔽 Simplify More
+              <button
+                className="rounded-full bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200"
+                type="button"
+                onClick={() => {
+                  setLevel('Kid');
+                  runExplain(topic, 'Kid', style);
+                }}
+              >
+                Simplify More
               </button>
-              <button className="small-pill" type="button" onClick={() => { setLevel('Expert'); runExplain(topic, 'Expert'); }}>
-                🔍 Explain Deeper
+              <button
+                className="rounded-full bg-gray-100 px-3 py-2 text-sm text-gray-700 hover:bg-gray-200"
+                type="button"
+                onClick={() => {
+                  setLevel('Expert');
+                  runExplain(topic, 'Expert', style);
+                }}
+              >
+                Explain Deeper
               </button>
             </div>
-          </section>
+          </div>
         ) : null}
-      </main>
+      </div>
     </>
   );
 }

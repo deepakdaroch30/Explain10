@@ -7,8 +7,9 @@ function buildPrompt(topic, level, style) {
     `Audience level: ${level}.`,
     `Output style preference: ${style}.`,
     `Topic: ${topic}.`,
+    'Prioritize the selected output style and make that section strongest.',
     'Return ONLY valid JSON with this exact shape:',
-    '{"simpleExplanation":"...","analogy":"...","realWorldExample":"...","curiousQuestions":["...","...","..."]}',
+    '{"simpleExplanation":"...","analogy":"...","stepByStep":["...","...","..."],"realWorldExample":"...","curiousQuestions":["...","...","..."]}',
     'Keep each section concise and high-readability.',
   ].join('\n');
 }
@@ -106,6 +107,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       simpleExplanation: parsed.simpleExplanation || '',
       analogy: parsed.analogy || '',
+      stepByStep: Array.isArray(parsed.stepByStep) ? parsed.stepByStep.slice(0, 6) : [],
       realWorldExample: parsed.realWorldExample || '',
       curiousQuestions: Array.isArray(parsed.curiousQuestions) ? parsed.curiousQuestions.slice(0, 5) : [],
     });
